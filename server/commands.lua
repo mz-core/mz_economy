@@ -634,6 +634,7 @@ RegisterCommand('mzecon_test', function(source)
 
   local result = MZEconomyService.RecordTransaction({
     source = tonumber(source) and tonumber(source) > 0 and tonumber(source) or nil,
+    identity_mode = tonumber(source) and tonumber(source) > 0 and nil or 'system',
     account = 'wallet',
     amount = 123,
     direction = 'adjustment',

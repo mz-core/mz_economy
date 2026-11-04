@@ -164,14 +164,41 @@ local function generateTransactionId()
   return ('mzecon-%s-%s-%06d'):format(os.time(), timer, math.random(0, 999999))
 end
 
-local function resolveIdentity(data)
+local SOURCELESS_IDENTITY_MODES = {
+  system = true,
+  offline_character = true,
+  organization = true
+}
+
+local function sourceLessCallerAllowed(caller)
+  local allowed = config().SourceLessIdentityAllowedResources
+  return type(caller) == 'string' and caller ~= ''
+    and type(allowed) == 'table' and allowed[caller] == true
+end
+
+local function resolveIdentity(data, authorization)
   data = type(data) == 'table' and data or {}
   local source = tonumber(data.source)
   local citizenid = trim(data.citizenid)
   local license = trim(data.license)
 
   if not source or source <= 0 then
-    return citizenid, license, nil
+    local identityMode = trim(data.identity_mode):lower()
+    local caller = getInvokingResourceSafe()
+    local internal = type(authorization) == 'table' and authorization.internal == true
+    if not SOURCELESS_IDENTITY_MODES[identityMode] then
+      return nil, nil, 'source_less_identity_mode_required'
+    end
+    if not internal and not sourceLessCallerAllowed(caller) then
+      return nil, nil, 'source_less_identity_not_authorized'
+    end
+    if identityMode == 'offline_character' and citizenid == '' then
+      return nil, nil, 'offline_character_required'
+    end
+    return citizenid, license, nil, {
+      mode = identityMode,
+      caller = internal and 'mz_economy:internal' or caller
+    }
   end
 
   local ok, identity = pcall(function()
@@ -179,13 +206,18 @@ local function resolveIdentity(data)
   end)
 
   if ok and type(identity) == 'table' and identity.ok == true then
-    if citizenid == '' then citizenid = trim(identity.citizenid) end
-    if license == '' then license = trim(identity.license) end
-    return citizenid, license, nil
+    citizenid = trim(identity.citizenid)
+    license = ''
+    return citizenid, license, nil, {
+      mode = 'runtime_source',
+      accountId = tonumber(identity.accountId),
+      characterId = tonumber(identity.characterId),
+      sessionId = tonumber(identity.sessionId)
+    }
   end
 
   local err = ok and (identity and identity.error or 'identity_not_found') or identity
-  return citizenid, license, tostring(err or 'identity_error')
+  return nil, nil, 'source_identity_unavailable:' .. tostring(err or 'identity_error')
 end
 
 function MZEconomyService.NormalizeAccount(account)
@@ -228,7 +260,7 @@ function MZEconomyService.NormalizeDirection(direction)
   return value
 end
 
-function MZEconomyService.BuildTransactionPayload(data)
+function MZEconomyService.BuildTransactionPayload(data, authorization)
   data = type(data) == 'table' and data or {}
 
   local account, accountErr = MZEconomyService.NormalizeAccount(data.account)
@@ -247,7 +279,9 @@ function MZEconomyService.BuildTransactionPayload(data)
   end
 
   local metadata = normalizeMetadata(data.metadata)
-  local citizenid, license, identityError = resolveIdentity(data)
+  local citizenid, license, identityError, canonicalIdentity = resolveIdentity(data, authorization)
+  if identityError then return false, identityError end
+  metadata.identity = canonicalIdentity
 
   local sourceResource = trim(data.source_resource or metadata.source_resource)
   if sourceResource == '' then
@@ -268,10 +302,6 @@ function MZEconomyService.BuildTransactionPayload(data)
     countsAsExpense = false
     metadata.validation_warning = 'income_and_expense_flags_reset'
     print('[mz_economy] warning: transaction received income and expense flags; both reset to false')
-  end
-
-  if identityError then
-    metadata.identity_warning = identityError
   end
 
   local payload = {
@@ -593,7 +623,8 @@ function MZEconomyService.ResolveCitizenIdTarget(target)
       return trim(identity.citizenid), {
         resolvedFrom = 'source',
         source = source,
-        license = trim(identity.license),
+        accountId = tonumber(identity.accountId),
+        characterId = tonumber(identity.characterId),
         name = trim((identity.firstname or '') .. ' ' .. (identity.lastname or ''))
       }
     end

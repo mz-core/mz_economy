@@ -5,25 +5,11 @@ CreateThread(function()
     return
   end
 
-  print('[mz_economy] passive ledger ready')
+  print('[mz_economy] canonical financial domain ready')
 end)
 
 exports('RecordTransaction', function(data)
   return MZEconomyService.RecordTransaction(data)
-end)
-
--- Contrato privado P3-C. A implementacao valida novamente GetInvokingResource
--- e aceita exclusivamente o mz_core.
-exports('ConsumeFinancialOutbox', function(event)
-  return MZEconomyService.ConsumeFinancialOutbox(event)
-end)
-
-exports('GetFinancialOutboxConsumerReadiness', function()
-  return MZEconomyService.GetFinancialOutboxConsumerReadiness()
-end)
-
-exports('ValidateFinancialOutbox', function(event)
-  return MZEconomyService.ValidateFinancialOutbox(event)
 end)
 
 exports('GetDailySummary', function(date)

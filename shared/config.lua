@@ -3,6 +3,18 @@ Config = Config or {}
 Config.Economy = {
   Debug = false,
 
+  StarterMoney = {
+    money = 500,
+    bank = 5000,
+    dirty_money = 0
+  },
+
+  PhysicalMoney = {
+    Enabled = true,
+    InventoryResource = 'mz_inventory',
+    RecoveryIntervalMs = 15000
+  },
+
   Accounts = {
     wallet = true,
     bank = true,
@@ -26,6 +38,12 @@ Config.Economy = {
   DefaultCategory = 'unknown',
   DefaultSourceResource = 'unknown',
 
+  -- Operacoes sem source sao fail-closed e precisam declarar identity_mode.
+  -- Esta lista autoriza o chamador real; source_resource no payload nao concede confianca.
+  SourceLessIdentityAllowedResources = {
+    mz_economy = true
+  },
+
   StaffAce = 'group.mz_owner',
 
   UnknownLimitDefault = 25,
@@ -48,12 +66,4 @@ Config.Economy = {
   },
 
   AllowIncomeExpenseSameTransaction = false
-}
-
--- Fase 3 / P3-C: o consumer privado e idempotente existe, mas permanece
--- desligado por padrao. Ele aceita somente chamadas server-side do mz_core.
-Config.Economy.FinancialOutbox = {
-  Enabled = false,
-  ConsumerEnabled = false,
-  SchemaVersion = 1
 }

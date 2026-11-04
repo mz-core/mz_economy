@@ -22,11 +22,10 @@ local function encodeJson(value)
 end
 
 local PLAYTIME_AGGREGATE_SQL = [[
-  SELECT citizenid, MAX(license) AS license, COALESCE(SUM(session_minutes), 0) AS playtime_minutes
+  SELECT citizenid, COALESCE(SUM(session_minutes), 0) AS playtime_minutes
   FROM (
     SELECT
       citizenid,
-      license,
       CASE
         WHEN session_end <= session_start THEN 0
         WHEN TIMESTAMPDIFF(SECOND, session_start, session_end) < 60 THEN 0
@@ -35,7 +34,6 @@ local PLAYTIME_AGGREGATE_SQL = [[
     FROM (
       SELECT
         citizenid,
-        license,
         GREATEST(joined_at, ?) AS session_start,
         LEAST(
           CASE
@@ -135,72 +133,6 @@ function MZEconomyRepository.insertTransaction(payload)
   })
 
   return tonumber(insertId) or insertId
-end
-
-function MZEconomyRepository.findOutboxReceipts(outboxId, correlationId)
-  return MySQL.query.await([[
-    SELECT outbox_id, correlation_id, payload_version, entry_count, processed_at
-    FROM mz_economy_outbox_receipts
-    WHERE outbox_id = ? OR correlation_id = ?
-    ORDER BY id ASC
-  ]], { outboxId, correlationId }) or {}
-end
-
-local function appendOutboxLedgerStatement(statements, payload)
-  statements[#statements + 1] = {
-    query = [[
-      INSERT INTO mz_economy_transactions (
-        transaction_id, citizenid, license, account, amount, balance_before, balance_after,
-        direction, category, reason, source_resource, source_type, counts_as_income,
-        counts_as_expense, related_citizenid, related_org_code, external_ref, metadata_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]],
-    parameters = {
-      payload.transaction_id,
-      payload.citizenid,
-      payload.license,
-      payload.account,
-      payload.amount,
-      payload.balance_before,
-      payload.balance_after,
-      payload.direction,
-      payload.category,
-      payload.reason,
-      payload.source_resource,
-      payload.source_type,
-      payload.counts_as_income,
-      payload.counts_as_expense,
-      payload.related_citizenid,
-      payload.related_org_code,
-      payload.external_ref,
-      payload.metadata_json
-    }
-  }
-end
-
-function MZEconomyRepository.consumeFinancialOutbox(receipt, ledgerPayloads)
-  local statements = {
-    {
-      query = [[
-        INSERT INTO mz_economy_outbox_receipts (
-          outbox_id, correlation_id, payload_version, entry_count, metadata_json
-        ) VALUES (?, ?, ?, ?, ?)
-      ]],
-      parameters = {
-        receipt.outboxId,
-        receipt.correlationId,
-        receipt.payloadVersion,
-        receipt.entryCount,
-        receipt.metadataJson
-      }
-    }
-  }
-
-  for _, payload in ipairs(ledgerPayloads or {}) do
-    appendOutboxLedgerStatement(statements, payload)
-  end
-
-  return MySQL.transaction.await(statements) == true
 end
 
 function MZEconomyRepository.getDailySummary(date)
@@ -557,7 +489,7 @@ function MZEconomyRepository.rebuildDailyPlayerStats(date, options)
     SELECT
       ? AS stat_date,
       base.citizenid,
-      COALESCE(tx.license, pt.license, p.license) AS license,
+      tx.license AS license,
       NULLIF(TRIM(CONCAT(COALESCE(p.firstname, ''), ' ', COALESCE(p.lastname, ''))), '') AS player_name,
       COALESCE(pt.playtime_minutes, 0) AS playtime_minutes,
       COALESCE(tx.income_total, 0) AS income_total,
